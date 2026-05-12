@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sudoku Solver — Backtracking Visualizer</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ── Theme tokens ── */
+:root{
+  --bg:#0d0f14;--surface:#161922;--surf2:#1e2130;--border:#2a2f45;
+  --accent:#7c6af7;--accent2:#5ef0d4;--text:#e8eaf2;--muted:#6b7290;
+  --shadow:0 8px 32px rgba(0,0,0,.55);--shadow-sm:0 2px 12px rgba(0,0,0,.4);
+  --radius:14px;--rsm:8px;--tr:.17s cubic-bezier(.4,0,.2,1);
+  /* cell state colours — one source of truth used by cells, legend, log, explain */
+  --c-given:#a5b4fc;    /* blue-purple  — puzzle clues        */
+  --c-user:#fbbf24;     /* warm amber   — YOU typed this       */
+  --c-wrong:#f77c6a;    /* red          — wrong answer         */
+  --c-check:#f7c56a;    /* light amber  — solver checking      */
+  --c-back:#f77c6a;     /* red          — solver backtracking  */
+  --c-solved:#5ef0d4;   /* teal         — solver confirmed     */
+  --bg-user:rgba(251,191,36,.13);
+  --bg-check:rgba(247,197,106,.22);--bg-back:rgba(247,124,106,.20);
+  --bg-wrong:rgba(247,124,106,.22);
+  --ring-user:rgba(251,191,36,.7);
+  --ring-check:rgba(247,197,106,.9);--ring-back:rgba(247,124,106,.9);
+  --ring-wrong:rgba(247,124,106,.9);
+}
+[data-theme="light"]{
+  --bg:#eef0f8;--surface:#fff;--surf2:#e4e7f5;--border:#cdd1ea;
+  --accent:#5340e8;--accent2:#0fa88e;--text:#1a1c2a;--muted:#5f6480;
+  --shadow:0 8px 32px rgba(60,60,100,.13);--shadow-sm:0 2px 12px rgba(60,60,100,.09);
+  --c-given:#4338ca;--c-user:#d97706;--c-wrong:#c0392b;
+  --c-check:#b8820a;--c-back:#c0392b;--c-solved:#0a9e84;
+  --bg-user:rgba(217,119,6,.12);
+  --bg-check:rgba(184,130,10,.14);--bg-back:rgba(192,57,43,.12);
+  --bg-wrong:rgba(192,57,43,.15);
+  --ring-user:rgba(217,119,6,.75);
+  --ring-check:rgba(184,130,10,.85);--ring-back:rgba(192,57,43,.85);
+  --ring-wrong:rgba(192,57,43,.9);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background var(--tr),color var(--tr);overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 65% 45% at 18% 8%,rgba(124,106,247,.18) 0%,transparent 70%),
+             radial-gradient(ellipse 55% 38% at 82% 88%,rgba(94,240,212,.13) 0%,transparent 70%)}
+[data-theme="light"] body::before{opacity:.45}
+.wrapper{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:2rem 1.25rem 5rem}
+
+/* ── Header ── */
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:2.5rem;flex-wrap:wrap;gap:1rem}
+.logo{display:flex;align-items:baseline;gap:.5rem}
+.logo-title{font-size:1.85rem;font-weight:800;letter-spacing:-1.5px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo-sub{font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--muted);letter-spacing:.13em;text-transform:uppercase}
+.toggle{display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;font-size:.82rem;color:var(--muted)}
+.toggle-track{width:42px;height:22px;background:var(--surf2);border:1px solid var(--border);border-radius:999px;position:relative;transition:background var(--tr)}
+.toggle-track::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--accent);transition:transform var(--tr)}
+[data-theme="light"] .toggle-track::after{transform:translateX(20px)}
+
+/* ── Layout ── */
+.main{display:grid;grid-template-columns:1fr minmax(290px,350px);gap:2rem;align-items:start}
+@media(max-width:840px){.main{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.2rem;box-shadow:var(--shadow)}
+.section-title{font-size:.7rem;font-weight:700;color:var(--muted);letter-spacing:.13em;text-transform:uppercase;margin-bottom:.75rem}
+
+/* ── Board area ── */
+.board-wrap{display:flex;flex-direction:column;align-items:center;gap:1rem}
+.status-bar{width:100%;max-width:470px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
+.status-msg{font-family:'JetBrains Mono',monospace;font-size:.78rem;font-weight:500;padding:.33rem .85rem;border-radius:999px;background:var(--surf2);color:var(--muted);border:1px solid var(--border);min-width:175px;text-align:center;transition:all var(--tr)}
+.status-msg.success{background:rgba(94,240,212,.15);color:var(--c-solved);border-color:var(--c-solved)}
+.status-msg.error{background:rgba(247,124,106,.15);color:var(--c-back);border-color:var(--c-back)}
+.status-msg.warn{background:rgba(251,191,36,.15);color:var(--c-user);border-color:var(--c-user)}
+
+/* ── TIMER — completely rewritten, Date.now() based, bulletproof ── */
+.timer-wrap{
+  display:flex;align-items:center;gap:.45rem;
+  font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:700;
+  color:var(--accent2);letter-spacing:.1em;
+  padding:.3rem .85rem;border-radius:999px;
+  border:1.5px solid var(--border);background:var(--surf2);
+  min-width:100px;justify-content:center;
+  transition:border-color var(--tr),color var(--tr),background var(--tr);
+}
+.timer-wrap.running{border-color:var(--c-user);color:var(--c-user)}
+.timer-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0;opacity:0}
+.timer-wrap.running .timer-dot{opacity:1;animation:blink .9s step-start infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── Grid ── */
+#board{display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:5px;background:var(--border);border-radius:var(--rsm);box-shadow:var(--shadow);width:100%;max-width:470px;aspect-ratio:1}
+.cell{background:var(--surf2);border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:clamp(12px,2vw,21px);font-weight:500;text-align:center;cursor:pointer;border-radius:3px;transition:background var(--tr),color var(--tr),box-shadow .1s;caret-color:transparent;aspect-ratio:1;width:100%}
+.cell:focus{box-shadow:0 0 0 2px var(--accent);z-index:2;position:relative}
+.cell.bl{border-left:2.5px solid var(--muted)!important}
+.cell.bt{border-top:2.5px solid var(--muted)!important}
+.cell.same-group{background:rgba(124,106,247,.1)}
+.cell.same-value{background:rgba(124,106,247,.22)}
+
+/* ── Cell state classes — must match legend swatches exactly ── */
+.cell.given{color:var(--c-given);font-weight:700}
+
+/* USER-TYPED: warm amber with subtle ring — the key new state */
+.cell.user-entered{
+  color:var(--c-user);font-weight:600;
+  background:var(--bg-user);
+  box-shadow:0 0 0 1.5px var(--ring-user);
+}
+.cell.wrong{
+  color:var(--c-wrong);font-weight:600;
+  background:var(--bg-wrong);
+  box-shadow:0 0 0 2px var(--ring-wrong);
+  animation:shake .3s ease;
+}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.cell.solved{color:var(--c-solved);animation:pop .22s ease}
+.cell.checking{background:var(--bg-check);color:var(--c-check);box-shadow:0 0 0 2px var(--ring-check);z-index:3;position:relative}
+.cell.backtrack{background:var(--bg-back);color:var(--c-back);box-shadow:0 0 0 2px var(--ring-back);z-index:3;position:relative}
+@keyframes pop{0%{transform:scale(.7);opacity:.4}65%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+
+/* ── Controls ── */
+.controls-row{display:flex;gap:1rem;flex-wrap:wrap;width:100%;max-width:470px;align-items:center}
+.ctrl-group{flex:1;min-width:130px}
+.ctrl-group label{display:block;font-size:.68rem;color:var(--muted);margin-bottom:.35rem;letter-spacing:.09em;text-transform:uppercase}
+select,input[type=range]{width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:var(--rsm);color:var(--text);font-family:'Syne',sans-serif;font-size:.82rem;padding:.42rem .7rem;appearance:none;cursor:pointer;transition:border-color var(--tr)}
+select:focus,input[type=range]:focus{outline:none;border-color:var(--accent)}
+input[type=range]{padding:0;height:6px;accent-color:var(--accent)}
+.speed-label{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--muted);text-align:right;margin-top:.25rem}
+
+/* ── Buttons ── */
+.btn-row{display:flex;gap:.65rem;flex-wrap:wrap;justify-content:center;width:100%;max-width:470px}
+.btn-row2{display:flex;gap:.65rem;flex-wrap:wrap;justify-content:center;width:100%;max-width:470px}
+.btn{flex:1;min-width:88px;padding:.68rem .85rem;border:1px solid var(--border);border-radius:var(--rsm);background:var(--surf2);color:var(--text);font-family:'Syne',sans-serif;font-size:.8rem;font-weight:600;cursor:pointer;letter-spacing:.04em;transition:all var(--tr);display:flex;align-items:center;justify-content:center;gap:.35rem}
+.btn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:linear-gradient(135deg,var(--accent),#a78bfa);border-color:transparent;color:#fff;box-shadow:0 4px 16px rgba(124,106,247,.4)}
+.btn.primary:hover{box-shadow:0 6px 24px rgba(124,106,247,.55);filter:brightness(1.08)}
+.btn.success{background:linear-gradient(135deg,#059669,#10b981);border-color:transparent;color:#fff;box-shadow:0 4px 16px rgba(16,185,129,.35)}
+.btn.success:hover{filter:brightness(1.1);box-shadow:0 6px 24px rgba(16,185,129,.5)}
+.btn.warn{border-color:var(--c-user);color:var(--c-user)}
+.btn.warn:hover{background:var(--bg-user)}
+.btn.danger{border-color:var(--c-back);color:var(--c-back)}
+.btn.danger:hover{background:var(--bg-back)}
+
+/* ── Side panel ── */
+.side{display:flex;flex-direction:column;gap:1.1rem}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}
+.stat-card{background:var(--surf2);border:1px solid var(--border);border-radius:var(--rsm);padding:.8rem;text-align:center}
+.stat-value{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:500;color:var(--accent);display:block}
+.stat-label{font-size:.63rem;color:var(--muted);letter-spacing:.09em;text-transform:uppercase;margin-top:.15rem}
+
+/* ── Legend — swatches replicate cell states exactly ── */
+.legend{display:flex;flex-direction:column;gap:.55rem}
+.legend-row{display:flex;align-items:center;gap:.75rem}
+.swatch{width:38px;height:26px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:700}
+.sw-given   {background:var(--surf2);color:var(--c-given);border:1.5px solid var(--c-given)}
+.sw-user    {background:var(--bg-user);color:var(--c-user);box-shadow:0 0 0 1.5px var(--ring-user)}
+.sw-wrong   {background:var(--bg-wrong);color:var(--c-wrong);box-shadow:0 0 0 2px var(--ring-wrong)}
+.sw-checking{background:var(--bg-check);color:var(--c-check);box-shadow:0 0 0 2px var(--ring-check)}
+.sw-backtrack{background:var(--bg-back);color:var(--c-back);box-shadow:0 0 0 2px var(--ring-back)}
+.sw-solved  {background:var(--surf2);color:var(--c-solved);border:1.5px solid var(--c-solved)}
+.legend-text{font-size:.79rem;color:var(--muted);line-height:1.35}
+.legend-text strong{color:var(--text);font-weight:600;display:block;font-size:.82rem}
+
+/* ── Backtrack log ── */
+.log-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem}
+.log-clear{font-size:.68rem;background:none;border:none;color:var(--muted);cursor:pointer;font-family:'Syne',sans-serif;padding:0}
+.log-clear:hover{color:var(--text)}
+.bt-log{max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:3px;scroll-behavior:smooth}
+.bt-log::-webkit-scrollbar{width:3px}
+.bt-log::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.log-entry{display:grid;grid-template-columns:38px 60px 1fr auto;align-items:center;gap:.5rem;font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:.3rem .65rem;border-radius:5px;border-left:3px solid transparent;animation:slide-in .12s ease}
+@keyframes slide-in{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.log-entry.chk  {background:var(--bg-check);border-color:var(--c-check);color:var(--c-check)}
+.log-entry.bt   {background:var(--bg-back); border-color:var(--c-back); color:var(--c-back)}
+/* user-typed entry — amber, matches .cell.user-entered */
+.log-entry.user {background:var(--bg-user); border-color:var(--c-user); color:var(--c-user)}
+/* user-erased entry — muted red */
+.log-entry.erase{background:var(--bg-back); border-color:var(--c-back); color:var(--c-back); opacity:.7}
+.log-badge{font-size:.62rem;font-weight:700;letter-spacing:.04em;padding:.1rem .3rem;border-radius:3px;background:currentColor;color:var(--bg)}
+.log-pos{opacity:.8}.log-val{font-size:.9rem;font-weight:700;text-align:right}
+.log-msg{font-size:.68rem;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-empty{font-size:.78rem;color:var(--muted);text-align:center;padding:.5rem 0}
+
+/* ── Leaderboard ── */
+.lb-list{list-style:none;display:flex;flex-direction:column;gap:.35rem}
+.lb-item{display:flex;align-items:center;gap:.65rem;background:var(--surf2);border:1px solid var(--border);border-radius:var(--rsm);padding:.5rem .8rem;font-size:.78rem}
+.lb-rank{font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:700;min-width:22px}
+.lb-time{font-family:'JetBrains Mono',monospace;color:var(--accent2);margin-left:auto}
+.lb-diff{font-size:.65rem;color:var(--muted)}
+.lb-empty{font-size:.78rem;color:var(--muted);text-align:center;padding:.5rem 0}
+
+/* ── Explain section ── */
+.explain{margin-top:2.8rem}
+.explain>h2{font-size:1.18rem;font-weight:800;margin-bottom:1.3rem}
+.explain-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}
+.explain-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.15rem 1.15rem 1rem;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+.explain-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.explain-card .step-num{font-family:'JetBrains Mono',monospace;font-size:.66rem;color:var(--muted);margin-bottom:.45rem;letter-spacing:.08em}
+.explain-card h3{font-size:.92rem;font-weight:700;margin-bottom:.5rem;line-height:1.3}
+.explain-card p{font-size:.79rem;color:var(--muted);line-height:1.65}
+.ck{color:var(--c-check);font-weight:700}.bk{color:var(--c-back);font-weight:700}
+.ok{color:var(--c-solved);font-weight:700}.gv{color:var(--c-given);font-weight:700}
+.algo-block{margin-top:.75rem;background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:.65rem .8rem;font-family:'JetBrains Mono',monospace;font-size:.72rem;line-height:1.75;color:var(--muted);overflow-x:auto}
+.algo-block .kw{color:#a78bfa;font-weight:500}.algo-block .fn{color:#60a5fa}
+.algo-block .ck{color:var(--c-check);font-weight:600}.algo-block .bk{color:var(--c-back);font-weight:600}
+.algo-block .ok{color:var(--c-solved);font-weight:600}.algo-block .cm{color:var(--muted);opacity:.6;font-style:italic}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--surface);border:1px solid var(--border);border-radius:var(--rsm);padding:.7rem 1.4rem;font-size:.85rem;box-shadow:var(--shadow);transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s;z-index:999;pointer-events:none;opacity:0}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+@keyframes hue-shift{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(28deg)}}
+.solving-active .logo-title{animation:hue-shift 1.5s infinite alternate}
+@media(max-width:480px){.controls-row{flex-direction:column}.btn-row .btn,.btn-row2 .btn{min-width:76px}}
+</style>
+</head>
+<body>
+<div class="wrapper" id="app">
+  <header>
+    <div class="logo">
+      <span class="logo-title">SudokuSolver</span>
+      <span class="logo-sub">backtracking engine</span>
+    </div>
+    <label class="toggle" id="themeToggle" title="Toggle theme">
+      <span>&#9728;&#65039;</span><div class="toggle-track"></div><span>&#127769;</span>
+    </label>
+  </header>
+
+  <div class="main">
+    <!-- LEFT: board -->
+    <div class="board-wrap">
+      <div class="status-bar">
+        <div class="status-msg" id="statusMsg">Generate or type a puzzle</div>
+        <div class="timer-wrap" id="timerWrap">
+          <div class="timer-dot"></div>
+          <span id="timerDisplay">00:00</span>
+        </div>
+      </div>
+
+      <div id="board" role="grid" aria-label="Sudoku board"></div>
+
+      <div class="controls-row">
+        <div class="ctrl-group">
+          <label>Difficulty</label>
+          <select id="diffSelect">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+        <div class="ctrl-group">
+          <label>Solver Speed</label>
+          <input type="range" id="speedRange" min="0" max="5" value="3" step="1"/>
+          <div class="speed-label" id="speedLabel">Normal</div>
+        </div>
+      </div>
+
+      <!-- Row 1: Solve / Generate / Clear -->
+      <div class="btn-row">
+        <button class="btn primary" id="btnSolve" onclick="handleSolve()">&#9654; Solve</button>
+        <button class="btn" id="btnGenerate" onclick="handleGenerate()">&#9889; Generate</button>
+        <button class="btn danger" id="btnClear" onclick="handleClear()">&#10005; Clear</button>
+      </div>
+
+      <!-- Row 2: Check / Submit (play mode) -->
+      <div class="btn-row2">
+        <button class="btn warn" id="btnCheck" onclick="handleCheck()">&#10003; Check</button>
+        <button class="btn success" id="btnSubmit" onclick="handleSubmit()">&#9654;&#9654; Submit</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: side panel -->
+    <div class="side">
+      <div class="panel">
+        <div class="section-title">Live Stats</div>
+        <div class="stat-grid">
+          <div class="stat-card"><span class="stat-value" id="statSteps">0</span><div class="stat-label">Steps</div></div>
+          <div class="stat-card"><span class="stat-value" id="statBt">0</span><div class="stat-label">Backtracks</div></div>
+          <div class="stat-card"><span class="stat-value" id="statSolved">0</span><div class="stat-label">Solved</div></div>
+          <div class="stat-card"><span class="stat-value" id="statBest">--</span><div class="stat-label">Best Time</div></div>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="panel">
+        <div class="section-title">Cell States</div>
+        <div class="legend">
+          <div class="legend-row">
+            <div class="swatch sw-given">5</div>
+            <div class="legend-text"><strong>Given</strong>Prefilled puzzle clue</div>
+          </div>
+          <div class="legend-row">
+            <div class="swatch sw-user">9</div>
+            <div class="legend-text"><strong>Your Entry</strong>Number you typed</div>
+          </div>
+          <div class="legend-row">
+            <div class="swatch sw-wrong">&#10005;</div>
+            <div class="legend-text"><strong>Wrong</strong>Incorrect — check again</div>
+          </div>
+          <div class="legend-row">
+            <div class="swatch sw-checking">7</div>
+            <div class="legend-text"><strong>Checking</strong>Solver trying a digit</div>
+          </div>
+          <div class="legend-row">
+            <div class="swatch sw-backtrack">&#8617;</div>
+            <div class="legend-text"><strong>Backtrack</strong>Solver erasing &amp; retrying</div>
+          </div>
+          <div class="legend-row">
+            <div class="swatch sw-solved">3</div>
+            <div class="legend-text"><strong>Solved</strong>Confirmed by solver</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backtrack log -->
+      <div class="panel">
+        <div class="log-header">
+          <span class="section-title" style="margin-bottom:0">Backtrack Log</span>
+          <button class="log-clear" onclick="clearLog()">clear</button>
+        </div>
+        <div class="bt-log" id="btLog">
+          <div class="log-empty" id="logEmpty">Type numbers or hit Solve to see activity...</div>
+        </div>
+      </div>
+
+      <!-- Leaderboard -->
+      <div class="panel">
+        <div class="section-title">&#9889; Leaderboard</div>
+        <ul class="lb-list" id="leaderboard">
+          <li class="lb-empty">No records yet. Solve a puzzle!</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Explain section -->
+  <section class="explain">
+    <h2>&#129504; How Backtracking Works</h2>
+    <div class="explain-grid">
+      <div class="explain-card">
+        <div class="step-num">STEP 01</div>
+        <h3>Find Empty Cell</h3>
+        <p>Scan left-to-right, top-to-bottom. Stop at the first cell with value <code>0</code>. If none found, the puzzle is solved.</p>
+        <div class="algo-block">
+<span class="kw">function</span> <span class="fn">solve</span>(board) {<br>
+&nbsp;&nbsp;<span class="kw">const</span> idx = board.<span class="fn">indexOf</span>(<span class="ok">0</span>);<br>
+&nbsp;&nbsp;<span class="kw">if</span> (idx === -1)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> <span class="ok">true</span>; <span class="cm">// solved!</span>
+        </div>
+      </div>
+      <div class="explain-card">
+        <div class="step-num">STEP 02</div>
+        <h3><span class="ck">Try</span> Digits 1-9</h3>
+        <p>For each digit 1-9, check if it can legally go in that cell. The <span class="ck">amber glow</span> shows the digit currently being tested.</p>
+        <div class="algo-block">
+&nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">let</span> v = <span class="ck">1</span>; v &lt;= <span class="ck">9</span>; v++) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">if</span> (<span class="fn">isValid</span>(board, idx, v)) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;board[idx] = <span class="ck">v</span>; <span class="cm">// amber</span>
+        </div>
+      </div>
+      <div class="explain-card">
+        <div class="step-num">STEP 03</div>
+        <h3>Validate Placement</h3>
+        <p>A digit is valid only if it does not already appear in the same <strong>row</strong>, <strong>column</strong>, or <strong>3x3 box</strong>.</p>
+        <div class="algo-block">
+<span class="kw">function</span> <span class="fn">isValid</span>(b, i, v) {<br>
+&nbsp;&nbsp;<span class="kw">for</span>(col) <span class="kw">if</span> b[row*9+c]===v <span class="bk">fail</span>;<br>
+&nbsp;&nbsp;<span class="kw">for</span>(row) <span class="kw">if</span> b[r*9+col]===v <span class="bk">fail</span>;<br>
+&nbsp;&nbsp;<span class="kw">for</span>(box) <span class="kw">if</span> b[r][c]===v <span class="bk">fail</span>;<br>
+&nbsp;&nbsp;<span class="kw">return</span> <span class="ok">true</span>;<br>}
+        </div>
+      </div>
+      <div class="explain-card">
+        <div class="step-num">STEP 04</div>
+        <h3>Recurse Deeper</h3>
+        <p>Digit placed successfully - call <code>solve()</code> again for the next empty cell. The call stack grows with each placement.</p>
+        <div class="algo-block">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">if</span> (<span class="fn">solve</span>(board)) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">return</span> <span class="ok">true</span>;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;} <span class="cm">// else: backtrack</span>
+        </div>
+      </div>
+      <div class="explain-card">
+        <div class="step-num">STEP 05</div>
+        <h3><span class="bk">Backtrack</span></h3>
+        <p>If all 9 digits fail, <span class="bk">erase the cell (red flash)</span> and return false. The Backtrack Log records every erase with its grid position.</p>
+        <div class="algo-block">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;board[idx] = <span class="bk">0</span>; <span class="cm">// red flash</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;} <span class="cm">// try next digit</span><br>
+&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;<span class="kw">return</span> <span class="bk">false</span>; <span class="cm">// backtrack!</span>
+        </div>
+      </div>
+      <div class="explain-card">
+        <div class="step-num">STEP 06</div>
+        <h3><span class="ok">Solved!</span></h3>
+        <p>No empty cells remain - complete. All placed cells glow <span class="ok">teal</span>. Timer stops and the score is saved to the leaderboard.</p>
+        <div class="algo-block">
+<span class="cm">// idx === -1: no empties left</span><br>
+<span class="kw">return</span> <span class="ok">true</span>; <span class="cm">// teal glow</span><br><br>
+<span class="cm">// timer stops, LB updated</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =====================================================
+   SUDOKU SOLVER
+   Fixes in this version:
+   1. Timer uses Date.now() — starts immediately, never drifts
+   2. Timer also starts on first user keypress (play mode)
+   3. User-typed cells show in amber (--c-user) distinct from given (blue)
+   4. Check button: highlights wrong cells red, correct cells stay amber
+   5. Submit button: checks if all cells filled + all correct
+   ===================================================== */
+
+const SPEED_MAP    = [0,4,16,50,130,350];
+const SPEED_LABELS = ['Instant','Lightning','Fast','Normal','Slow','Turtle'];
+
+const PUZZLES = {
+  easy:[5,3,0,0,7,0,0,0,0,6,0,0,1,9,5,0,0,0,0,9,8,0,0,0,0,6,0,
+        8,0,0,0,6,0,0,0,3,4,0,0,8,0,3,0,0,1,7,0,0,0,2,0,0,0,6,
+        0,6,0,0,0,0,2,8,0,0,0,0,4,1,9,0,0,5,0,0,0,0,8,0,0,7,9],
+  medium:[0,0,0,2,6,0,7,0,1,6,8,0,0,7,0,0,9,0,1,9,0,0,0,4,5,0,0,
+          8,2,0,1,0,0,0,4,0,0,0,4,6,0,2,9,0,0,0,5,0,0,0,3,0,2,8,
+          0,0,9,3,0,0,0,7,4,0,4,0,0,5,0,0,3,6,7,0,3,0,1,8,0,0,0],
+  hard:[0,0,0,0,0,0,0,1,2,0,0,0,0,3,5,0,0,0,0,0,0,6,0,0,0,7,0,
+        7,0,0,0,0,0,3,0,0,0,0,0,4,0,0,8,0,0,1,0,0,0,0,0,0,0,0,
+        0,0,0,1,2,0,0,0,0,0,8,0,0,0,0,0,4,0,0,5,0,0,0,0,6,0,0]
+};
+
+/* ── State ── */
+let board        = Array(81).fill(0);  // current board values
+let given        = Array(81).fill(false); // prefilled cells (not editable)
+let solution     = null;               // correct solution (set when puzzle generated)
+let userEntered  = Array(81).fill(false); // cells the user typed into
+let solving      = false;
+let stopFlag     = false;
+let steps        = 0, backtracks = 0, totalSolved = 0;
+let bestTimes    = [];
+let playMode     = false; // true once user starts typing answers
+
+/* =====================================================
+   TIMER
+   Uses Date.now() arithmetic — immune to tab throttling,
+   starts synchronously, updates every 200ms.
+   ===================================================== */
+let _timerID     = null;   // setInterval handle
+let _timerStart  = 0;      // Date.now() when started
+let _timerBase   = 0;      // ms accumulated before current run
+let _timerOn     = false;
+
+function timerEl()    { return document.getElementById('timerDisplay'); }
+function timerWrapEl(){ return document.getElementById('timerWrap'); }
+
+function _renderTimer() {
+  const ms  = _timerBase + (Date.now() - _timerStart);
+  const sec = Math.floor(ms / 1000);
+  const m   = String(Math.floor(sec / 60)).padStart(2,'0');
+  const s   = String(sec % 60).padStart(2,'0');
+  timerEl().textContent = m + ':' + s;
+}
+
+/* Call timerStart() to begin or resume the timer.
+   It is SYNCHRONOUS — no await needed. */
+function timerStart() {
+  if (_timerOn) return;                   // already running
+  _timerOn = true;
+  _timerStart = Date.now();               // snapshot now
+  timerWrapEl().classList.add('running');
+  _renderTimer();                         // immediate render
+  _timerID = setInterval(_renderTimer, 200); // update every 200ms
+}
+
+function timerStop() {
+  if (!_timerOn) return;
+  _timerBase += Date.now() - _timerStart; // save elapsed
+  _timerOn = false;
+  clearInterval(_timerID); _timerID = null;
+  timerWrapEl().classList.remove('running');
+  _renderTimer();                         // freeze display
+}
+
+function timerReset() {
+  timerStop();
+  _timerBase = 0; _timerStart = 0;
+  timerEl().textContent = '00:00';
+}
+
+function timerSeconds() {
+  return Math.floor(_timerBase / 1000);
+}
+
+/* ── DOM helpers ── */
+function cellEl(idx) {
+  return document.querySelector('.cell[data-idx="'+idx+'"]');
+}
+
+/* Set a cell's primary state class, preserving box-border helpers (bl/bt) and
+   keeping same-group/same-value highlight classes intact */
+function setCellState(idx, state) {
+  var el = cellEl(idx);
+  var bl = el.classList.contains('bl');
+  var bt = el.classList.contains('bt');
+  // Remove all state classes
+  el.className = 'cell'
+    + (bl ? ' bl' : '')
+    + (bt ? ' bt' : '')
+    + (state ? ' ' + state : '');
+}
+
+/* Render board[] values and states to DOM */
+function renderBoard() {
+  for (var i = 0; i < 81; i++) {
+    var el = cellEl(i);
+    el.value = board[i] || '';
+    if (given[i]) {
+      setCellState(i, 'given');
+    } else if (userEntered[i] && board[i]) {
+      setCellState(i, 'user-entered');
+    } else {
+      setCellState(i, '');
+    }
+  }
+}
+
+/* ── Build 9x9 grid ── */
+function buildGrid() {
+  var grid = document.getElementById('board');
+  grid.innerHTML = '';
+  for (var i = 0; i < 81; i++) {
+    (function(idx) {
+      var row = Math.floor(idx / 9), col = idx % 9;
+      var inp = document.createElement('input');
+      inp.type = 'text'; inp.inputMode = 'numeric'; inp.maxLength = 1;
+      inp.className = 'cell'; inp.dataset.idx = idx;
+      inp.setAttribute('aria-label', 'Row '+(row+1)+' Col '+(col+1));
+      if (col === 3 || col === 6) inp.classList.add('bl');
+      if (row === 3 || row === 6) inp.classList.add('bt');
+
+      inp.addEventListener('input', function(e) {
+        if (solving) { e.target.value = board[idx] || ''; return; }
+        if (given[idx]) { e.target.value = board[idx] || ''; return; }
+
+        var v = parseInt(e.target.value);
+        var row = Math.floor(idx/9), col = idx%9;
+        if (v >= 1 && v <= 9) {
+          board[idx] = v;
+          userEntered[idx] = true;
+          setCellState(idx, 'user-entered'); // amber — user typed this
+          pushLog('user', row, col, v);      // log it in the backtrack panel
+          // Start play timer on first keypress
+          if (!playMode) { playMode = true; timerStart(); }
+        } else {
+          board[idx] = 0;
+          userEntered[idx] = false;
+          e.target.value = '';
+          setCellState(idx, '');
+        }
+      });
+
+      inp.addEventListener('focus', function() { clearHL(); hlGroup(idx); });
+
+      inp.addEventListener('keydown', function(e) {
+        var nav = {ArrowUp:-9,ArrowDown:9,ArrowLeft:-1,ArrowRight:1};
+        if (nav[e.key] != null) {
+          e.preventDefault();
+          var n = idx + nav[e.key];
+          if (n >= 0 && n < 81) cellEl(n).focus();
+        }
+        if ((e.key === 'Backspace' || e.key === 'Delete') && !solving && !given[idx]) {
+          if(board[idx]) {
+            pushLog('erase', Math.floor(idx/9), idx%9, board[idx]);
+          }
+          board[idx] = 0; userEntered[idx] = false;
+          e.target.value = ''; setCellState(idx, '');
+        }
+      });
+
+      grid.appendChild(inp);
+    })(i);
+  }
+}
+
+/* ── Highlights ── */
+function clearHL() {
+  document.querySelectorAll('.cell').forEach(function(el) {
+    el.classList.remove('same-group','same-value');
+  });
+}
+function hlGroup(idx) {
+  var r=Math.floor(idx/9),c=idx%9,br=Math.floor(r/3)*3,bc=Math.floor(c/3)*3;
+  for (var i=0;i<81;i++) {
+    if(i===idx) continue;
+    var ri=Math.floor(i/9),ci=i%9,el=cellEl(i);
+    if(ri===r||ci===c||(Math.floor(ri/3)*3===br&&Math.floor(ci/3)*3===bc))
+      el.classList.add('same-group');
+    if(board[i]&&board[i]===board[idx]) el.classList.add('same-value');
+  }
+}
+
+/* ── Validation ── */
+function isValid(b, idx, val) {
+  var r=Math.floor(idx/9),c=idx%9;
+  for(var j=0;j<9;j++){
+    if(b[r*9+j]===val&&j!==c) return false;
+    if(b[j*9+c]===val&&j!==r) return false;
+  }
+  var br=Math.floor(r/3)*3,bc=Math.floor(c/3)*3;
+  for(var dr=0;dr<3;dr++) for(var dc=0;dc<3;dc++){
+    var ni=(br+dr)*9+(bc+dc);
+    if(b[ni]===val&&ni!==idx) return false;
+  }
+  return true;
+}
+
+/* ── Backtrack log ── */
+var MAX_LOG = 180;
+function pushLog(type, row, col, val) {
+  var container = document.getElementById('btLog');
+  var ph = document.getElementById('logEmpty');
+  if(ph) ph.remove();
+  while(container.children.length >= MAX_LOG) container.firstChild.remove();
+  var entry = document.createElement('div');
+  entry.className = 'log-entry ' + type;
+  var label, msg, digit;
+  if(type === 'bt')     { label='BACK'; msg='solver erased';     digit='--'; }
+  else if(type === 'chk'){ label='TRY';  msg='solver placed '+val; digit=val; }
+  else if(type === 'user'){ label='YOU'; msg='typed '+val;         digit=val; }
+  else if(type === 'erase'){ label='DEL'; msg='erased cell';      digit='--'; }
+  else { label=type.toUpperCase(); msg=''; digit=val||''; }
+  var pos = 'R'+(row+1)+' C'+(col+1);
+  entry.innerHTML =
+    '<span class="log-badge">'+label+'</span>'+
+    '<span class="log-pos">'+pos+'</span>'+
+    '<span class="log-msg">'+msg+'</span>'+
+    '<span class="log-val">'+digit+'</span>';
+  container.appendChild(entry);
+  container.scrollTop = container.scrollHeight;
+}
+function clearLog(){
+  document.getElementById('btLog').innerHTML =
+    '<div class="log-empty" id="logEmpty">Type numbers or hit Solve to see activity...</div>';
+}
+
+/* ── Delay helper ── */
+function wait(ms){ return ms>0?new Promise(function(r){setTimeout(r,ms);}):Promise.resolve(); }
+
+/* =====================================================
+   CORE BACKTRACKING SOLVER (async + animated)
+   ===================================================== */
+async function solve(b) {
+  var idx = b.indexOf(0);
+  if(idx===-1) return true; // base case: no empties = solved
+
+  var spd = parseInt(document.getElementById('speedRange').value);
+  var ms  = SPEED_MAP[spd];
+  var row = Math.floor(idx/9), col = idx%9;
+
+  for(var val=1; val<=9; val++) {
+    if(stopFlag) return false;
+
+    if(isValid(b, idx, val)) {
+      b[idx] = val; steps++;
+      document.getElementById('statSteps').textContent = steps;
+
+      if(ms > 0) {
+        cellEl(idx).value = val;
+        setCellState(idx, 'checking');   // amber — trying this digit
+        pushLog('chk', row, col, val);
+        await wait(ms);
+        if(stopFlag) return false;
+      }
+
+      if(await solve(b)) return true;
+
+      // Backtrack: digit didn't work
+      b[idx] = 0; backtracks++;
+      document.getElementById('statBt').textContent = backtracks;
+
+      if(ms > 0) {
+        cellEl(idx).value = '';
+        setCellState(idx, 'backtrack');  // red — erasing
+        pushLog('bt', row, col, val);
+        await wait(ms * 0.65);
+        if(stopFlag) return false;
+        setCellState(idx, '');
+      }
+    }
+  }
+  return false; // no digit worked — tell caller to backtrack
+}
+
+/* ── Non-animated solver for generation / solution checking ── */
+function quickSolve(b) {
+  var idx=b.indexOf(0); if(idx===-1) return true;
+  for(var v=1;v<=9;v++){if(isValid(b,idx,v)){b[idx]=v;if(quickSolve(b))return true;b[idx]=0;}}
+  return false;
+}
+function fillBoard(b) {
+  var idx=b.indexOf(0); if(idx===-1) return true;
+  var nums=[1,2,3,4,5,6,7,8,9].sort(function(){return Math.random()-.5;});
+  for(var i=0;i<nums.length;i++){var v=nums[i];if(isValid(b,idx,v)){b[idx]=v;if(fillBoard(b))return true;b[idx]=0;}}
+  return false;
+}
+function generatePuzzle(diff) {
+  var base=Array(81).fill(0); fillBoard(base);
+  solution = base.slice(); // store correct solution
+  var removals={easy:35,medium:48,hard:58};
+  var result=base.slice();
+  var order=[...Array(81).keys()].sort(function(){return Math.random()-.5;});
+  var removed=0;
+  for(var i=0;i<81&&removed<removals[diff];i++){
+    var idx=order[i],bk=result[idx];
+    result[idx]=0;
+    if(quickSolve(result.slice())) removed++;
+    else result[idx]=bk;
+  }
+  return result;
+}
+
+/* ── UI helpers ── */
+function setStatus(msg, type) {
+  var el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className = 'status-msg' + (type ? ' '+type : '');
+}
+function showToast(msg, dur) {
+  dur = dur || 2700;
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, dur);
+}
+/* =====================================================
+   BACKEND API CONFIG
+   Set BACKEND_URL to your deployed Render/Railway URL in production.
+   Falls back to localhost:4000 for local development.
+   ===================================================== */
+var BACKEND_URL = (function() {
+  // Injected at build time via Vercel env vars (window.__ENV__ set in vercel.json headers
+  // or a tiny inline <script> added during deployment). Falls back gracefully.
+  if (typeof window.__BACKEND_URL__ !== 'undefined') return window.__BACKEND_URL__;
+  // Detect: if page is served from localhost, use local backend; else use the
+  // VITE/CRA-style placeholder that Vercel replaces at deploy time.
+  var host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:4000';
+  // ← Replace this string with your actual Render/Railway URL before deploying ←
+  return 'https://your-sudoku-backend.onrender.com';
+})();
+
+/* ── Leaderboard helpers ── */
+var medals = ['🥇','🥈','🥉'];
+
+function fmtTime(sec) {
+  return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
+}
+
+/* Render leaderboard entries into the <ul> (works with both local and API data) */
+function renderLB(entries) {
+  var medals=['🥇','🥈','🥉'];
+  if (!entries || entries.length === 0) {
+    document.getElementById('leaderboard').innerHTML =
+      '<li class="lb-empty">No records yet. Solve a puzzle!</li>';
+    return;
+  }
+  document.getElementById('leaderboard').innerHTML = entries.map(function(e, i) {
+    var rank  = e.rank != null ? e.rank : (i + 1);
+    var name  = e.playerName || e.when || 'Player';
+    var sec   = e.solveTime  != null ? e.solveTime  : e.sec;
+    var diff  = e.difficulty  || e.diff || '';
+    return '<li class="lb-item">'+
+      '<span class="lb-rank">'+(medals[rank-1]||'#'+rank)+'</span>'+
+      '<span>'+name+'</span>'+
+      '<span class="lb-diff">'+diff+'</span>'+
+      '<span class="lb-time">'+fmtTime(sec)+'</span>'+
+      '</li>';
+  }).join('');
+}
+
+/* Show a loading state in the leaderboard panel */
+function lbLoading() {
+  document.getElementById('leaderboard').innerHTML =
+    '<li class="lb-empty" style="opacity:.6">Loading leaderboard…</li>';
+}
+
+/* ── Fetch global leaderboard from backend ── */
+async function fetchLeaderboard() {
+  lbLoading();
+  try {
+    var res = await fetch(BACKEND_URL + '/api/leaderboard?limit=8', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var json = await res.json();
+    if (json.success && json.data) {
+      renderLB(json.data);
+      // Update local bestTimes for statBest card
+      if (json.data.length > 0) {
+        var best = json.data[0];
+        document.getElementById('statBest').textContent = fmtTime(best.solveTime);
+      }
+    } else {
+      throw new Error('Bad response shape');
+    }
+  } catch (err) {
+    console.warn('Leaderboard fetch failed, using local data:', err.message);
+    // Graceful degradation: render local bestTimes if backend is unreachable
+    if (bestTimes.length > 0) {
+      renderLB(bestTimes.map(function(e, i) {
+        return { rank: i+1, playerName: e.when, solveTime: e.sec, difficulty: e.diff };
+      }));
+    } else {
+      document.getElementById('leaderboard').innerHTML =
+        '<li class="lb-empty">Leaderboard unavailable offline</li>';
+    }
+  }
+}
+
+/* ── Post a new score to the backend ── */
+async function postScore(sec, diff, solvedByAI) {
+  // Prompt for player name (keeps the existing UX flow)
+  var name = (window.prompt('Enter your name for the leaderboard:', 'Player') || '').trim();
+  if (!name) name = 'Anonymous';
+  name = name.slice(0, 30);
+
+  try {
+    var res = await fetch(BACKEND_URL + '/api/leaderboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playerName: name,
+        difficulty: diff,
+        solveTime:  sec,
+        solvedByAI: !!solvedByAI,
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+    var json = await res.json();
+    if (!res.ok) throw new Error(json.message || 'HTTP ' + res.status);
+    showToast('Score saved! You ranked #' + json.data.rank + ' globally 🎉', 3500);
+    // Refresh leaderboard from backend so rank is accurate
+    await fetchLeaderboard();
+  } catch (err) {
+    console.warn('Score post failed, saving locally:', err.message);
+    // Fallback: store locally and render
+    bestTimes.push({ sec: sec, diff: diff, when: name });
+    bestTimes.sort(function(a,b){ return a.sec - b.sec; });
+    bestTimes = bestTimes.slice(0, 8);
+    var localBest = bestTimes[0];
+    document.getElementById('statBest').textContent = fmtTime(localBest.sec);
+    renderLB(bestTimes.map(function(e, i) {
+      return { rank: i+1, playerName: e.when, solveTime: e.sec, difficulty: e.diff };
+    }));
+    showToast('Saved locally (backend unreachable)', 2700);
+  }
+}
+
+/* addLB — called from handleSolve() and handleSubmit() exactly as before.
+   Now posts to backend and refreshes the global leaderboard. */
+function addLB(sec, diff, solvedByAI) {
+  postScore(sec, diff, solvedByAI);
+}
+
+/* =====================================================
+   BUTTON HANDLERS
+   ===================================================== */
+
+/* SOLVE — run backtracking animation */
+async function handleSolve() {
+  if(solving) {
+    stopFlag=true; solving=false; timerStop();
+    setStatus('Stopped');
+    document.getElementById('btnSolve').textContent = '&#9654; Solve';
+    document.getElementById('app').classList.remove('solving-active');
+    return;
+  }
+
+  given = board.map(function(v){return v!==0;});
+  steps=0; backtracks=0;
+  document.getElementById('statSteps').textContent=0;
+  document.getElementById('statBt').textContent=0;
+  clearLog(); stopFlag=false; solving=true; playMode=false;
+
+  setStatus('Solving...');
+  document.getElementById('btnSolve').textContent = '&#9646; Stop';
+  document.getElementById('app').classList.add('solving-active');
+
+  /* START TIMER — synchronous, before any await */
+  timerReset();
+  timerStart();
+
+  var work = board.slice();
+  var ok   = await solve(work);
+
+  solving=false; stopFlag=false; timerStop();
+  document.getElementById('btnSolve').textContent = '&#9654; Solve';
+  document.getElementById('app').classList.remove('solving-active');
+
+  if(ok) {
+    board = work;
+    for(var i=0;i<81;i++){
+      cellEl(i).value = board[i]||'';
+      setCellState(i, given[i]?'given':'solved');
+    }
+    totalSolved++;
+    document.getElementById('statSolved').textContent = totalSolved;
+    setStatus('Solved successfully!', 'success');
+    showToast('Solved! '+steps+' steps, '+backtracks+' backtracks');
+    addLB(timerSeconds(), document.getElementById('diffSelect').value, true);
+  } else {
+    setStatus('No solution exists', 'error');
+    showToast('No solution found for this puzzle.');
+  }
+}
+
+/* GENERATE — create a new puzzle */
+function handleGenerate() {
+  if(solving) return;
+  timerReset(); playMode=false;
+  var diff = document.getElementById('diffSelect').value;
+  setStatus('Generating...');
+  setTimeout(function(){
+    var puzzle = generatePuzzle(diff);
+    board = puzzle;
+    given = board.map(function(v){return v!==0;});
+    userEntered = Array(81).fill(false);
+    renderBoard();
+    setStatus(diff[0].toUpperCase()+diff.slice(1)+' puzzle — start playing!');
+    showToast('New '+diff+' puzzle generated! Timer starts when you type.');
+  },50);
+}
+
+/* CLEAR — wipe the board */
+function handleClear() {
+  if(solving){stopFlag=true;solving=false;}
+  board=Array(81).fill(0); given=Array(81).fill(false);
+  userEntered=Array(81).fill(false); solution=null; playMode=false;
+  steps=0; backtracks=0;
+  document.getElementById('statSteps').textContent=0;
+  document.getElementById('statBt').textContent=0;
+  timerReset(); clearLog(); renderBoard();
+  setStatus('Board cleared');
+  document.getElementById('btnSolve').textContent='&#9654; Solve';
+  document.getElementById('app').classList.remove('solving-active');
+}
+
+/* CHECK — highlight correct/wrong user entries without stopping play */
+function handleCheck() {
+  if(solving) return;
+  if(!solution) {
+    showToast('Generate a puzzle first to enable checking!');
+    return;
+  }
+
+  var wrong = 0, correct = 0, empty = 0;
+
+  for(var i=0;i<81;i++){
+    if(given[i]) continue; // skip prefilled
+
+    var el = cellEl(i);
+    if(!board[i]) {
+      empty++;
+      setCellState(i, ''); // unfilled — leave neutral
+      continue;
+    }
+
+    if(board[i] === solution[i]) {
+      correct++;
+      setCellState(i, 'user-entered'); // correct — keep amber
+    } else {
+      wrong++;
+      el.value = board[i]; // show the wrong number
+      setCellState(i, 'wrong'); // red ring — wrong!
+    }
+  }
+
+  if(wrong === 0 && empty === 0) {
+    setStatus('Perfect! All correct!', 'success');
+    showToast('All correct! Now hit Submit to complete.');
+  } else if(wrong === 0) {
+    setStatus(correct+' correct, '+empty+' empty', 'warn');
+    showToast(correct+' correct so far. Keep going!');
+  } else {
+    setStatus(wrong+' wrong, '+correct+' correct', 'error');
+    showToast(wrong+' wrong answer'+(wrong>1?'s':'')+' highlighted in red.');
+  }
+}
+
+/* SUBMIT — final check: must have all cells filled and all correct */
+function handleSubmit() {
+  if(solving) return;
+  if(!solution) {
+    showToast('Generate a puzzle first!');
+    return;
+  }
+
+  // First do a full check
+  var wrong=0, empty=0;
+  for(var i=0;i<81;i++){
+    if(given[i]) continue;
+    if(!board[i]) empty++;
+    else if(board[i]!==solution[i]) wrong++;
+  }
+
+  if(empty > 0) {
+    setStatus(empty+' cells still empty', 'warn');
+    showToast('Fill all '+empty+' remaining cells before submitting!');
+    return;
+  }
+  if(wrong > 0) {
+    // Highlight the wrong ones
+    handleCheck();
+    showToast('Fix the '+wrong+' wrong answer'+(wrong>1?'s':'')+' before submitting!');
+    return;
+  }
+
+  // All correct!
+  timerStop();
+  var sec = timerSeconds();
+  var m   = String(Math.floor(sec/60)).padStart(2,'0');
+  var s   = String(sec%60).padStart(2,'0');
+
+  // Mark all user entries as solved colour
+  for(var j=0;j<81;j++){
+    if(!given[j]&&board[j]) setCellState(j,'solved');
+  }
+
+  totalSolved++;
+  document.getElementById('statSolved').textContent = totalSolved;
+  setStatus('Puzzle complete! '+m+':'+s, 'success');
+  showToast('You solved it in '+m+':'+s+'! Brilliant!', 4000);
+  addLB(sec, document.getElementById('diffSelect').value);
+}
+
+/* Speed slider */
+document.getElementById('speedRange').addEventListener('input', function(e){
+  document.getElementById('speedLabel').textContent = SPEED_LABELS[+e.target.value];
+});
+/* Theme toggle */
+document.getElementById('themeToggle').addEventListener('click', function(){
+  document.documentElement.dataset.theme =
+    document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+});
+
+/* ── Init ── */
+buildGrid();
+handleGenerate();
+// Load global leaderboard from backend on startup
+fetchLeaderboard();
+</script>
+</body>
+</html>
