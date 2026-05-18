@@ -61,6 +61,8 @@ app.use((req, res) => {
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use(errorHandler);
 
+console.log("ENV CHECK:", process.env.MONGO_URI ? "FOUND" : "MISSING");
+
 // ── Start server ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

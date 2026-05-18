@@ -746,7 +746,7 @@ var BACKEND_URL = (function() {
   var host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:4000';
   // ← Replace this string with your actual Render/Railway URL before deploying ←
-  return 'https://your-sudoku-backend.onrender.com';
+ 
 })();
 
 /* ── Leaderboard helpers ── */
@@ -991,11 +991,27 @@ function handleCheck() {
 
 /* SUBMIT — final check: must have all cells filled and all correct */
 function handleSubmit() {
-  if(solving) return;
-  if(!solution) {
+  if (solving) return;
+
+  if (!solution) {
     showToast('Generate a puzzle first!');
     return;
   }
+
+  for (let i = 0; i < 9; i++) {
+    for (let j = 0; j < 9; j++) {
+      const userVal = Number(board[i][j].value || 0);
+      const correctVal = solution[i][j];
+
+      if (userVal !== correctVal) {
+        showToast('Wrong Solution ❌');
+        return;
+      }
+    }
+  }
+
+  showToast('Correct Solution 🎉');
+}
 
   // First do a full check
   var wrong=0, empty=0;
